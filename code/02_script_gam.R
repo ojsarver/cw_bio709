@@ -195,7 +195,25 @@ habitat_type=case_when(site %in% c("RECCON", "RECWET")~"prairie",
 # Objective:
 #   Quantify and visualize bat activity as the number of bat passes per day.
 
+df_bat_v<-df_bat%>%
+  group_by(site,
+           date,
+           habitat_type,
+           wetland_status)%>%
+  summarize(pass=n(), #counts # of rows in each group in group_by
+            .groups="drop")%>%
+  mutate(month=month(date),
+         year=year(date),
+         j_date=yday(date))%>%
+  filter(year==2021)
 
+df_bat_v%>%
+  ggplot(aes(x=date,
+             y=pass,
+             color=wetland_status))+
+  geom_point()+
+  facet_wrap(facets =~habitat_type)+
+  theme_bw()
 
 # Steps:
 #   - Aggregate data to calculate daily bat passes
@@ -222,3 +240,16 @@ habitat_type=case_when(site %in% c("RECCON", "RECWET")~"prairie",
 #       * site (four-level factor)
 #       * Julian date (to account for seasonality)
 #   - Consider appropriate count models
+
+mean(df_bat_v$pass)
+var(df_bat_v$pass)
+
+b_gam_1<-gam(pass~habitat_type+wetland_status+s(j_date),
+           data=df_bat_v,
+           family="nb")
+b_gam_2<-gam(pass~habitat_type*wetland_status+s(j_date),
+             data=df_bat_v,
+             family="nb")
+
+summary(b_gam_1)
+summary(b_gam_2)
