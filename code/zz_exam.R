@@ -238,6 +238,7 @@ df_sun<-df_sunspot%>%
 
 df_comb<-left_join(df_sun, df_nile,by='year')
 
+
 # Q2. Test whether the number of sunspots is significantly related to Nile's discharge
 #     [4 points]
 
