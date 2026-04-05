@@ -91,38 +91,38 @@ df_inv%>%
   ggplot(aes(x=prod,
              y=hb,
              color=lake))+
-  geom_point()
+  geom_point()+
+  geom_smooth()
 
 # Q3. Create a scatter plot of "log-transformed" invertebrate biomass ('hb', y-axis)
 #     versus macrophyte production ('prod', x-axis), with points colored by lake identity.
 #     [1 point]
 
-loghb<-log10(df_inv$hb)
-
-df_inv<-df_inv%>%
-  add_column(loghb)
+df_inv <- df_inv%>%
+  mutate(loghb = log10(hb))
 
 df_inv%>%
   ggplot(aes(x=prod,
              y=loghb,
              color=lake))+
-  geom_point()
+  geom_point()+
+  geom_smooth()
 
 # Q4. Test hypothesis (a) by modeling macrophyte production while
 #     statistically controlling for potential confounding variables ('substrate', 'lake').
 #     [3 points]
 
 library(lavaan)
+library(glmmTMB)
 
-m1 <- prod~cond+substrate+lake
+m1 <- glmmTMB(prod ~ cond + (1|lake) + substrate,
+  data = df_inv)
 
-fit1 <- sem(model = m1,
-            data = df_inv)
+summary(m1)
 
-summary(fit1, standardize = TRUE)
-
-#prod highly related to cond (Std.all=0.788), slightly related to substrate
-#(Std.all=0.060), and negatively related to lake (Std.all=-0.0456)
+#prod highly related to cond (p-value of <2e-16), which supports the hypothesis,
+#substrate not significantly related to prod, p-value=0.158, but the 
+#original hypothesis doesn't mention that so it overall is supported
 
 # Q5. Test hypotheses (a–c) simultaneously using a unified modeling framework.
 #     Based on the resulting statistical tests, determine whether the overarching
@@ -131,19 +131,29 @@ summary(fit1, standardize = TRUE)
 #     - Use variable transformation if appropriate given the data.
 #     [4 points]
 
+library(piecewiseSEM)
+library(GGally)
+library(multcompView)
 
-m2<-'prod~cond+substrate+lake
-hb~prod
-s~prod'
+# (a) conductivity influences the productivity of macrophyes.
+# (b) ('hb') ~ ('prod') through bottom-up effects
+# (c) ('s') ~ ('prod')through bottom-up effects 
 
-fit2 <- sem(model = m2,
-            data = df_inv)
+m3<-glmmTMB(hb~prod+(1|lake),data=df_inv)
+m4<-glmmTMB(s~prod+(1|lake),data=df_inv,family=poisson()) #add poisson family -
+#variable is discrete it is a whole number integer with no decimals,
+#it does not have a clear upper limit,
+#we don't know of a max species richness/clear limit of species richness
 
-summary(fit2, standardize = TRUE)
+fit2 <- psem(m1,m3,m4)
+
+summary(fit2, .progressbar=F)
+
+#fisher C p-value=0.153
 
 #I think the overall hypothesis is supported as productivity is highly related
-#to cond (Std.all=0.788), and productivity is highly related to both 
-#hb (Std.all=0.404) and s (Std.all=0.608).
+#to cond (p-value=0), and productivity is highly related to both 
+#hb (p-value 0) and s (p-value=0).
 
 # dataset 3 ---------------------------------------------------------------
 
@@ -182,33 +192,47 @@ df_tree %>%
 #     Then, identify and retain axes that explain meaningful variation in the original variables
 #     [3 points]
 
-#chose to do NMDS because volume failed shaprio test so I thought it was not
-#normally distributed
+pca <- prcomp(
+  x = df_tree,
+  center = TRUE,
+  scale = TRUE)
 
-m_bray<-vegdist(df_tree,method="bray")
+summary(pca)
 
-obj_nmds<-metaMDS(comm=m_bray,
-                  k=2)
-
-obj_nmds
-
-#stress 0.03
+#PC1 explains 80$ of variance, PC2 explains 18.7% of variance, 
+#combined they explain 99.06% of variance
+#PC3 explains 9.36% of variation
 
 # Q3. If justified, test whether the retained axis (or axes) is significantly 
 #     related to "nutrient"; 
 #     skip regression if the ordination does not support meaningful interpretation.
 #     [1 point]
 
-df_nmds<-df_tree%>%
-  as_tibble()%>%
-  bind_cols(obj_nmds$points)%>%
-  janitor::clean_names()%>%
-  add_column(nutrient)
+df_treepca <- bind_cols(
+  df_tree,            
+  as_tibble(pca$x)
+)
 
-adonis2(m_bray~nutrient,
-        data=df_nmds)
+treeregression1 <- lm(PC1 ~ nutrient,
+        data = df_treepca)
 
-#pvalue of 0.001
+summary(treeregression1)
+
+#PC1 significantly related to nutrient (p-value=7.7e-06)
+
+treeregression2 <- lm(PC2 ~ nutrient,
+                      data = df_treepca)
+
+summary(treeregression2)
+
+#PC2 significantly related to nutrient (p-value=3.56e-05)
+
+treeregression3 <- lm(PC3 ~ nutrient,
+                      data = df_treepca)
+
+summary(treeregression3)
+
+#PC3 not significantly related to nutrient (p-value=0.85)
 
 # dataset 4 ---------------------------------------------------------------
 
@@ -242,11 +266,15 @@ df_comb<-left_join(df_sun, df_nile,by='year')
 # Q2. Test whether the number of sunspots is significantly related to Nile's discharge
 #     [4 points]
 
-m_com <- lm(discharge ~ sunspots,
-              data = df_comb)
 
-summary(m_com)
+library(forecast)
 
-#pvalue of 0.887, sunspots do not significantly impact nile discharge
-#R^2 of 0.0002, data does not show a linear pattern but is instead very
-#scattered
+arima <- auto.arima(
+  df_comb$discharge,
+  xreg = df_comb$sunspots,
+  stepwise = FALSE)
+
+confint(arima, level = 0.95)
+
+#95% confidence interval for xreg overlaps with 0, as it is from -.576 to 1.076,
+#so sunspots does not significantly impact discharge
